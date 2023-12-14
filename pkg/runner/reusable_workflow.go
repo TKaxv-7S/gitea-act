@@ -99,10 +99,11 @@ func cloneIfRequired(rc *RunContext, remoteReusableWorkflow remoteReusableWorkfl
 			//	2. Gitea has already full URL with rc.Config.GitHubInstance when calling newRemoteReusableWorkflowWithPlat
 			// remoteReusableWorkflow.URL = rc.getGithubContext(ctx).ServerURL
 			return git.NewGitCloneExecutor(git.NewGitCloneExecutorInput{
-				URL:   remoteReusableWorkflow.CloneURL(),
-				Ref:   remoteReusableWorkflow.Ref,
-				Dir:   targetDirectory,
-				Token: token,
+				URL:         remoteReusableWorkflow.CloneURL(),
+				Ref:         remoteReusableWorkflow.Ref,
+				Dir:         targetDirectory,
+				Token:       token,
+				OfflineMode: rc.Config.ActionOfflineMode,
 			})(ctx)
 		},
 		nil,

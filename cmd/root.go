@@ -583,6 +583,7 @@ func newRunCommand(ctx context.Context, input *Input) func(*cobra.Command, []str
 			ReuseContainers:                    input.reuseContainers,
 			Workdir:                            input.Workdir(),
 			ActionCacheDir:                     input.actionCachePath,
+			ActionOfflineMode:                  input.actionOfflineMode,
 			BindWorkdir:                        input.bindWorkdir,
 			LogOutput:                          !input.noOutput,
 			JSONLogger:                         input.jsonLogger,
