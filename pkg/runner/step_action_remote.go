@@ -75,6 +75,7 @@ func (sar *stepActionRemote) prepareActionExecutor() common.Executor {
 				For GitHub, they are the same, always github.com.
 				But for Gitea, tasks triggered by a.com can clone actions from b.com.
 			*/
+			OfflineMode: sar.RunContext.Config.ActionOfflineMode,
 		})
 		var ntErr common.Executor
 		if err := gitClone(ctx); err != nil {
