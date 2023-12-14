@@ -110,9 +110,6 @@ func maybeCopyToActionDir(ctx context.Context, step actionStep, actionDir string
 	if stepModel.Type() != model.StepTypeUsesActionRemote {
 		return nil
 	}
-	if err := removeGitIgnore(ctx, actionDir); err != nil {
-		return err
-	}
 
 	var containerActionDirCopy string
 	containerActionDirCopy = strings.TrimSuffix(containerActionDir, actionPath)
@@ -121,7 +118,7 @@ func maybeCopyToActionDir(ctx context.Context, step actionStep, actionDir string
 	if !strings.HasSuffix(containerActionDirCopy, `/`) {
 		containerActionDirCopy += `/`
 	}
-	return rc.JobContainer.CopyDir(containerActionDirCopy, actionDir+"/", rc.Config.UseGitIgnore)(ctx)
+	return rc.JobContainer.CopyDir(containerActionDirCopy, actionDir+"/", false)(ctx)
 }
 
 func runActionImpl(step actionStep, actionDir string, remoteAction *remoteAction) common.Executor {
