@@ -68,7 +68,7 @@ func (*LinuxContainerEnvironmentExtensions) GetRunnerContext(ctx context.Context
 		"os":         "Linux",
 		"arch":       RunnerArch(ctx),
 		"temp":       "/tmp",
-		"tool_cache": "/opt/hostedtoolcache",
+		"tool_cache": "/toolcache",
 	}
 }
 
