@@ -410,7 +410,7 @@ func (h *Handler) useCache(id int64) {
 
 const (
 	keepUsed   = 30 * 24 * time.Hour
-	keepUnused = 7 * 24 * time.Hour
+	keepUnused = 18 * 24 * time.Hour
 	keepTemp   = 5 * time.Minute
 	keepOld    = 5 * time.Minute
 )
@@ -459,23 +459,6 @@ func (h *Handler) gcCache() {
 	caches = caches[:0]
 	if err := db.Find(&caches, bolthold.
 		Where("UsedAt").Lt(time.Now().Add(-keepUnused).Unix()),
-	); err != nil {
-		h.logger.Warnf("find caches: %v", err)
-	} else {
-		for _, cache := range caches {
-			h.storage.Remove(cache.ID)
-			if err := db.Delete(cache.ID, cache); err != nil {
-				h.logger.Warnf("delete cache: %v", err)
-				continue
-			}
-			h.logger.Infof("deleted cache: %+v", cache)
-		}
-	}
-
-	// Remove the old caches which are too old.
-	caches = caches[:0]
-	if err := db.Find(&caches, bolthold.
-		Where("CreatedAt").Lt(time.Now().Add(-keepUsed).Unix()),
 	); err != nil {
 		h.logger.Warnf("find caches: %v", err)
 	} else {
