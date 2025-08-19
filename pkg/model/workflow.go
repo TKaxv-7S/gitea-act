@@ -17,12 +17,14 @@ import (
 
 // Workflow is the structure of the files in .github/workflows
 type Workflow struct {
-	File     string
-	Name     string            `yaml:"name"`
-	RawOn    yaml.Node         `yaml:"on"`
-	Env      map[string]string `yaml:"env"`
-	Jobs     map[string]*Job   `yaml:"jobs"`
-	Defaults Defaults          `yaml:"defaults"`
+	File           string
+	Name           string            `yaml:"name"`
+	RawOn          yaml.Node         `yaml:"on"`
+	Env            map[string]string `yaml:"env"`
+	Jobs           map[string]*Job   `yaml:"jobs"`
+	Defaults       Defaults          `yaml:"defaults"`
+	RawConcurrency *RawConcurrency   `yaml:"concurrency"`
+	RawPermissions yaml.Node         `yaml:"permissions"`
 }
 
 // On events for the workflow
@@ -199,6 +201,7 @@ type Job struct {
 	Uses           string                    `yaml:"uses"`
 	With           map[string]interface{}    `yaml:"with"`
 	RawSecrets     yaml.Node                 `yaml:"secrets"`
+	RawPermissions yaml.Node                 `yaml:"permissions"`
 	Result         string
 }
 
@@ -768,4 +771,29 @@ func decodeNode(node yaml.Node, out interface{}) bool {
 		return false
 	}
 	return true
+}
+
+// For Gitea
+// RawConcurrency represents a workflow concurrency or a job concurrency with uninterpolated options
+type RawConcurrency struct {
+	Group            string `yaml:"group,omitempty"`
+	CancelInProgress string `yaml:"cancel-in-progress,omitempty"`
+	RawExpression    string `yaml:"-,omitempty"`
+}
+
+type objectConcurrency RawConcurrency
+
+func (r *RawConcurrency) UnmarshalYAML(n *yaml.Node) error {
+	if err := n.Decode(&r.RawExpression); err == nil {
+		return nil
+	}
+	return n.Decode((*objectConcurrency)(r))
+}
+
+func (r *RawConcurrency) MarshalYAML() (interface{}, error) {
+	if r.RawExpression != "" {
+		return r.RawExpression, nil
+	}
+
+	return (*objectConcurrency)(r), nil
 }

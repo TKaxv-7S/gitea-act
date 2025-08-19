@@ -1,6 +1,7 @@
 package jobparser
 
 import (
+	"bytes"
 	"fmt"
 
 	"github.com/nektos/act/pkg/model"
@@ -9,11 +10,13 @@ import (
 
 // SingleWorkflow is a workflow with single job and single matrix
 type SingleWorkflow struct {
-	Name     string            `yaml:"name,omitempty"`
-	RawOn    yaml.Node         `yaml:"on,omitempty"`
-	Env      map[string]string `yaml:"env,omitempty"`
-	RawJobs  yaml.Node         `yaml:"jobs,omitempty"`
-	Defaults Defaults          `yaml:"defaults,omitempty"`
+	Name           string            `yaml:"name,omitempty"`
+	RawOn          yaml.Node         `yaml:"on,omitempty"`
+	Env            map[string]string `yaml:"env,omitempty"`
+	RawJobs        yaml.Node         `yaml:"jobs,omitempty"`
+	Defaults       Defaults          `yaml:"defaults,omitempty"`
+	RawPermissions yaml.Node         `yaml:"permissions,omitempty"`
+	RunName        string            `yaml:"run-name,omitempty"`
 }
 
 func (w *SingleWorkflow) Job() (string, *Job) {
@@ -82,6 +85,8 @@ type Job struct {
 	Uses           string                    `yaml:"uses,omitempty"`
 	With           map[string]interface{}    `yaml:"with,omitempty"`
 	RawSecrets     yaml.Node                 `yaml:"secrets,omitempty"`
+	RawConcurrency *model.RawConcurrency     `yaml:"concurrency,omitempty"`
+	RawPermissions yaml.Node                 `yaml:"permissions,omitempty"`
 }
 
 func (j *Job) Clone() *Job {
@@ -104,6 +109,8 @@ func (j *Job) Clone() *Job {
 		Uses:           j.Uses,
 		With:           j.With,
 		RawSecrets:     j.RawSecrets,
+		RawConcurrency: j.RawConcurrency,
+		RawPermissions: j.RawPermissions,
 	}
 }
 
@@ -241,6 +248,85 @@ func parseWorkflowDispatchInputs(inputs map[string]interface{}) ([]WorkflowDispa
 	return results, nil
 }
 
+func ReadWorkflowRawConcurrency(content []byte) (*model.RawConcurrency, error) {
+	w := new(model.Workflow)
+	err := yaml.NewDecoder(bytes.NewReader(content)).Decode(w)
+	return w.RawConcurrency, err
+}
+
+func EvaluateConcurrency(rc *model.RawConcurrency, jobID string, job *Job, gitCtx map[string]any, results map[string]*JobResult, vars map[string]string, inputs map[string]any) (string, bool, error) {
+	actJob := &model.Job{}
+	if job != nil {
+		actJob.Strategy = &model.Strategy{
+			FailFastString:    job.Strategy.FailFastString,
+			MaxParallelString: job.Strategy.MaxParallelString,
+			RawMatrix:         job.Strategy.RawMatrix,
+		}
+		actJob.Strategy.FailFast = actJob.Strategy.GetFailFast()
+		actJob.Strategy.MaxParallel = actJob.Strategy.GetMaxParallel()
+	}
+
+	matrix := make(map[string]any)
+	matrixes, err := actJob.GetMatrixes()
+	if err != nil {
+		return "", false, err
+	}
+	if len(matrixes) > 0 {
+		matrix = matrixes[0]
+	}
+
+	evaluator := NewExpressionEvaluator(NewInterpeter(jobID, actJob, matrix, toGitContext(gitCtx), results, vars, inputs))
+	var node yaml.Node
+	if err := node.Encode(rc); err != nil {
+		return "", false, fmt.Errorf("failed to encode concurrency: %w", err)
+	}
+	if err := evaluator.EvaluateYamlNode(&node); err != nil {
+		return "", false, fmt.Errorf("failed to evaluate concurrency: %w", err)
+	}
+	var evaluated model.RawConcurrency
+	if err := node.Decode(&evaluated); err != nil {
+		return "", false, fmt.Errorf("failed to unmarshal evaluated concurrency: %w", err)
+	}
+	if evaluated.RawExpression != "" {
+		return evaluated.RawExpression, false, nil
+	}
+	return evaluated.Group, evaluated.CancelInProgress == "true", nil
+}
+
+func toGitContext(input map[string]any) *model.GithubContext {
+	gitContext := &model.GithubContext{
+		EventPath:        asString(input["event_path"]),
+		Workflow:         asString(input["workflow"]),
+		RunID:            asString(input["run_id"]),
+		RunNumber:        asString(input["run_number"]),
+		Actor:            asString(input["actor"]),
+		Repository:       asString(input["repository"]),
+		EventName:        asString(input["event_name"]),
+		Sha:              asString(input["sha"]),
+		Ref:              asString(input["ref"]),
+		RefName:          asString(input["ref_name"]),
+		RefType:          asString(input["ref_type"]),
+		HeadRef:          asString(input["head_ref"]),
+		BaseRef:          asString(input["base_ref"]),
+		Token:            asString(input["token"]),
+		Workspace:        asString(input["workspace"]),
+		Action:           asString(input["action"]),
+		ActionPath:       asString(input["action_path"]),
+		ActionRef:        asString(input["action_ref"]),
+		ActionRepository: asString(input["action_repository"]),
+		Job:              asString(input["job"]),
+		RepositoryOwner:  asString(input["repository_owner"]),
+		RetentionDays:    asString(input["retention_days"]),
+	}
+
+	event, ok := input["event"].(map[string]any)
+	if ok {
+		gitContext.Event = event
+	}
+
+	return gitContext
+}
+
 func ParseRawOn(rawOn *yaml.Node) ([]*Event, error) {
 	switch rawOn.Kind {
 	case yaml.ScalarNode:
@@ -335,6 +421,13 @@ func ParseRawOn(rawOn *yaml.Node) ([]*Event, error) {
 								return nil, err
 							}
 							acts[act] = t
+						case yaml.ScalarNode:
+							var t string
+							err := content.Decode(&t)
+							if err != nil {
+								return nil, err
+							}
+							acts[act] = []string{t}
 						case yaml.MappingNode:
 							if k != "workflow_dispatch" || act != "inputs" {
 								return nil, fmt.Errorf("map should only for workflow_dispatch but %s: %#v", act, content)
@@ -421,4 +514,13 @@ func parseMappingNode[T any](node *yaml.Node) ([]string, []T, error) {
 	}
 
 	return scalars, datas, nil
+}
+
+func asString(v interface{}) string {
+	if v == nil {
+		return ""
+	} else if s, ok := v.(string); ok {
+		return s
+	}
+	return ""
 }
